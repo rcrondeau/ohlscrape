@@ -1,5 +1,5 @@
 ---
-logo: images/hdb_analytics.png
+logo: images/sdb_analytics.png
 output: 
   flexdashboard::flex_dashboard:
     theme: readable
@@ -15,13 +15,17 @@ library(shiny)
 library(DT)
 library(shinythemes)
 library(formattable)
+library(plotly)
+library(tidyverse)
 rosterTable <- read.csv('data/rosterTable.csv', fileEncoding="UTF-8")
 rosterTable.stats <- read.csv('data/rosterTable_stats.csv', fileEncoding="UTF-8")
 rosterTable.ev <- read.csv('data/rosterTable_ev.csv', fileEncoding="UTF-8")
 rosterTable.pp <- read.csv('data/rosterTable_pp.csv', fileEncoding="UTF-8")
+DrftAnalysis <- read.csv('data/draftCombined.csv')
 data.table::setDT(rosterTable.stats)
 data.table::setDT(rosterTable.pp)
 data.table::setDT(rosterTable.ev)
+data.table::setDT(DrftAnalysis)
 #Get Filter Lists
 team.names <- rosterTable$teamname
 #team.names <- c(team.names, "All")
@@ -31,10 +35,14 @@ draft.eligible <- rosterTable$draft.eligible
 #draft.eligible <- c(draft.eligible, "Both")
 position.f <- rosterTable$pos.clean
 #position.f <- c(position.f, "Both")
+f.player <- filter(rosterTable, draft.eligible == "Y")
+f.player <- f.player$name
 
 
 #source('qmjhl_clean_tables.R')
 ```
+
+#OHL
 
 Row {data-height=50}
 -----------------------------------------------------------------------
@@ -82,20 +90,131 @@ DT::renderDataTable({
     final_rows <- intersect(final_rows,     filter3_rows())
     final_rows <- intersect(final_rows,     filter4_rows())
     final_table <- rosterTable.stats[final_rows]
-    formattable(final_table, list(
-  PTS = color_tile("white", "green"),
-  PRIMARY.PTS = color_tile("white", "green"),
-  PERC.TEAM.PTS = formatter("span",
-                            style = x ~ style(color = ifelse(rank(-x) <= 50, "green", "gray")),
-                            x ~ sprintf("%.2f (rank: %02d)", x, rank(-x))),
-  Draft.Eligible = formatter("span",
-                             style = x ~ style(color = ifelse(x, "green", "red")),
-                             x ~ icontext(ifelse(x, "ok", "remove"), ifelse(x, "Yes", "No")))
-  
-))
   },
   filter = 'none',
   options = list(pageLength = 30, autoWidth = TRUE ,dom = 'tlp', order = list(list(11, 'desc')), list(scrolly = TRUE) ,columnDefs = list(list(visible=FALSE, targets=0))),
   rownames = TRUE
 )
 ```
+
+# Draft Analysis
+
+Inputs {.sidebar}
+-----------------------------------------------------------------------
+
+
+```{r}
+selectInput("player","Choose Player", choices=as.vector(unique(f.player)), selected = "", multiple=FALSE)
+```
+
+## Draft Analysis {.tabset .tabset-fade .tabset-pills}
+
+### Draft Plot
+
+
+```{r echo = FALSE}
+renderPlot({
+# Get this players ID and find his parameters
+#thisPlayer <- unname(unlist(distinct(select(filter(rosterTable, Name == input$player), PlayerID))))
+this_players_info <- dplyr::filter(rosterTable.stats, Name == input$player)
+pHeight <- as.numeric(as.character(this_players_info$Height))
+pdyptspg <- round(unname(unlist(this_players_info$PTSPG)), 3)
+
+if (nrow(this_players_info) > 0) {
+
+  if (this_players_info$Position == "D") {
+    position <- "D" 
+  } else {
+    position <- "F"
+  }
+
+  if (pHeight < 6.01) {
+    hFilter = " < 6.01"
+    hFilterText = "Less than 6'1"
+  } else {
+    hFilter = " >= 6.01"
+    hFilterText = "6'1+"
+  }
+
+  #Filter the draftAnalysis database based on this players parameters
+  threshold <- DrftAnalysis %>% filter_(.dots = paste0("League =='", this_players_info$League, "' & pos.clean =='", position, "' & Height.IN", hFilter))
+
+  if (nrow(threshold) >= 5) {
+
+    players <- threshold %>% select(jr.ptspg, PlayerCat) %>%
+      group_by(PlayerCat) %>%
+      summarise(x = mean(jr.ptspg), y = sd(jr.ptspg), count = n())
+
+    bustPlayers <- filter(players, PlayerCat == "Bust")
+    nhlPlayers <- filter(players, PlayerCat == "NHL Player")
+  
+    pNHL <- round(dnorm(pdyptspg, nhlPlayers$x, nhlPlayers$y), 3)
+    pSample <- data.frame(rnorm(10000, mean = nhlPlayers$x, sd = nhlPlayers$y)) %>%
+    mutate(Projection = "NHL Player") 
+    colnames(pSample) <- c("PTS_PG", "Projection")
+
+    pBust <- round((dnorm(pdyptspg, bustPlayers$x, bustPlayers$y)), 3)
+    bSample <- data.frame(rnorm(10000, bustPlayers$x, bustPlayers$y)) %>%
+      mutate(projection = "Bust")
+    colnames(bSample) <- c("PTS_PG", "Projection")
+
+    allPlayers <- rbind(pSample, bSample) #, pQSample)
+
+    p <- ggplot(allPlayers, aes(x=PTS_PG, fill=Projection)) + geom_density(alpha=.3) +
+      geom_vline(xintercept = pdyptspg, size = 1.5, color = "blue") +
+      annotate("text", x = pdyptspg, y = 1, label = paste0("  PTS/G= ", pdyptspg) , color = "black", hjust = 0) +
+      annotate("text", label = players$count , color = "red", hjust = 0) +
+      ggtitle(paste0(this_players_info$Name, ": Draft Year Points Per Game Threshold Analysis"), 
+            subtitle = paste0("Reference Group: \n\nLeague: ", this_players_info$League, "\nPosition: ", position, "\nHeight: ", hFilterText,"(",pHeight,")", "\nSample Size (NHL): ", 
+                              nhlPlayers$count, "\nSample Size (Bust): ", bustPlayers$count)) +
+      xlab("Points Per Game (Draft Year)") +
+      theme(legend.text=element_text(size=16), legend.title = element_text(size = 20)) +
+      theme(plot.title = element_text(size = 16, face = "bold")) +
+      theme(plot.subtitle = element_text(size = 14)) +
+      theme(axis.text.x = element_text(size = 18)) +
+      theme(axis.text.y = element_text(size = 18))
+    p
+    }
+  }  
+})
+```
+
+Draft Analysis Player Table {data-orientation=rows}
+=====================================
+
+## Draft Table
+
+
+```{r echo=FALSE}
+DT::renderDataTable({
+#  thisPlayer <- unname(unlist(distinct(select(filter(rosterTable, Player == input$player), PlayerID))))
+this_players_info <- dplyr::filter(rosterTable.stats, Name == input$player)
+pHeight <- as.numeric(this_players_info$Height)
+pdyptspg <- round(unname(unlist(this_players_info$PTSPG)), 3)
+
+if (nrow(this_players_info) > 0) {
+
+  if (this_players_info$Position == "D") {
+    position <- "D" 
+  } else {
+    position <- "F"
+  }
+
+  if (pHeight < 6.01) {
+    hFilter = " < 6.01"
+    hFilterText = "Less than 6'1"
+  } else {
+    hFilter = " >= 6.01"
+    hFilterText = "6'1+"
+  }
+
+  #Filter the draftAnalysis database based on this players parameters
+  threshold <- DrftAnalysis %>% filter_(.dots = paste0("League =='", this_players_info$League, "' & pos.clean =='", position, "' & Height.IN", hFilter))
+}
+  },
+  filter = 'none',
+  options = list(pageLength = 30, autoWidth = TRUE ,dom = 'tlp', list(scrolly = TRUE), columnDefs = list(list(visible=FALSE, targets=0))),
+  rownames = TRUE
+)
+```
+

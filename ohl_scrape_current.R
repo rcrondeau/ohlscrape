@@ -1,7 +1,7 @@
 
 library(tidyjson)
 library(dplyr)
-library(tidyr)
+library(tidyverse)
 library(readr)
 library(data.table)
 library(stringr)

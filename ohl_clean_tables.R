@@ -5,7 +5,7 @@ library(gdata)
 
 #Clean Stats Tables
 dt.rosters.final$pos.clean <- ifelse(dt.rosters.final$position_id == 1, "D", "F")
-rosterTable <- dt.rosters.final[, c(36,30,39,25,44:53,63:66,73,80,101,123:125,131:137,142:146,156:159,161)]
+rosterTable <- dt.rosters.final[, c(36,30,39,25,44:53,63:66,73,80,101,123:125,131:137,142:146,156:159,161,18)]
 #Remove Goalies
 #rosterTable <- filter(rosterTable, !grepl("G",position))
 #Get Draft Eligibility
@@ -15,17 +15,20 @@ rosterTable$draft.end <- as.Date(paste(rosterTable$birth.year, 9, 15, sep = "-")
 rosterTable$draft.year <- ifelse(rosterTable$BD.Mod > rosterTable$draft.end, rosterTable$birth.year + 19, rosterTable$birth.year + 18)
 rosterTable$draft.season <- as.numeric(substr(rosterTable$season.name, 1, 4)) + 1
 rosterTable$draft.eligible <- ifelse(as.numeric(rosterTable$draft.season) == as.numeric(rosterTable$draft.year), "Y", "N")
+rosterTable$height <- as.numeric(rosterTable$height)
 fwrite(rosterTable, 'data/rosterTable.csv')
 #Get Stats Table
-rosterTable.stats <-  rosterTable[,c(1,41,47,3:5,7:10,22,6,25,27:30)]
-names(rosterTable.stats) <- c("Name", "Position", "Draft.Eligible", "Team", "Birth Date", "GP", "G", "A1", "A2","PTS", "Season", "Shots", "Team.Shots", "Team.G", "Team.A1", "Team.A2", "Team.PTS")
+rosterTable.stats <-  rosterTable[,c(1,41,48,3:5,7:10,22,6,25,27:30,42)]
+names(rosterTable.stats) <- c("Name", "Position", "Draft.Eligible", "Team", "Birth Date", "GP", "G", "A1", "A2","PTS", "Season", "Shots", "Team.Shots", "Team.G", "Team.A1", "Team.A2", "Team.PTS","Height")
 rosterTable.stats$PRIMARY.PTS <- round(rosterTable.stats$G + rosterTable.stats$A1,digits=2)
 rosterTable.stats$TEAM.PRIMARY.PTS <- round(rosterTable.stats$Team.G + rosterTable.stats$Team.A1,digits=2)
 rosterTable.stats$SH.PERC <- round(rosterTable.stats$G/rosterTable.stats$Shots,digits=2)
 rosterTable.stats$PERC.TEAM.SHOTS <- round(rosterTable.stats$Shots/rosterTable.stats$Team.Shots,digits=2)
 rosterTable.stats$PERC.TEAM.PTS <- round(rosterTable.stats$PTS/rosterTable.stats$Team.PTS,digits=2)
 rosterTable.stats$PERC.TEAM.PrPTS <- round(rosterTable.stats$PRIMARY.PTS/rosterTable.stats$TEAM.PRIMARY.PTS,digits=2)
-rosterTable.stats <- rosterTable.stats[,c(11,1:10,18,22,23,12,13,20,21)]
+rosterTable.stats$PTSPG <- round(rosterTable.stats$PTS/rosterTable.stats$GP,digits=2)
+rosterTable.stats$League <- "OHL"
+rosterTable.stats <- rosterTable.stats[,c(26,11,1:4,18,5:10,19,20,24,12,13,21,22,23,25)]
 fwrite(rosterTable.stats, 'data/rosterTable_stats.csv')
 #Get PP Table
 rosterTable.pp <- rosterTable[,c(1,41,47,3:5,11:14,22,33:36)]
